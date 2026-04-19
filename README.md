@@ -9,7 +9,7 @@ This repository contains the optimized implementation for high-fidelity object d
 | **Model Size** | 62.61 Million | 21.78 Million | **21.78 Million** |
 | **GFLOPs** | 117.2 | 74.8 | **191.4** |
 | **Input Res** | 640 x 640 | 640 x 640 | **1024 x 1024** |
-| **mAP50 Accuracy**| 35.9% | 36.3% (Peak) | **38.7% (Unified Peak)** |
+| **mAP50 Accuracy**| 35.9% | 36.3% | **38.7% ** |
 | **Efficiency** | Legacy Baseline | Balanced Performance | **High Fidelity Detection** |
 | **Optimization** | None | Altitude Normalization| **Alt-Aware + 1024px** |
 
