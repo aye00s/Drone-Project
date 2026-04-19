@@ -1,0 +1,22 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# OS generated files
+.DS_Store
+
+# Large Weight Files (Exceeds GitHub 100MB limit)
+weights/*.pt
+weights/*.weights
+*.pt
+*.weights
+
+# Training logs and outputs
+runs/
+output/
+
+# Datasets
+data/images/
+data/labels/
+images/

@@ -1,0 +1,4 @@
+classes=8
+train=data/auair_train_subset.txt
+valid=data/auair_val.txt
+names=data/auair.names

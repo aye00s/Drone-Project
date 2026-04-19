@@ -1,0 +1,16 @@
+# AU-AIR Normalized Dataset (Altitude-Aware)
+path: /home/students/bigdrive/Datasets/AU-AIR-Normalized
+train: /home/students/bigdrive/Drone/T03_AU_AIR_Traffic/data/auair_train_norm.txt
+val: /home/students/bigdrive/Drone/T03_AU_AIR_Traffic/data/auair_val_norm.txt
+
+# Let's create proper train/val split files for the normalized dataset.
+nc: 8
+names:
+  0: Car
+  1: Truck
+  2: Van
+  3: Trailer
+  4: Bus
+  5: Motorbike
+  6: Bicycle
+  7: Human

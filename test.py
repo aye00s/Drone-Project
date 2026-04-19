@@ -13,15 +13,17 @@ def test(cfg,
          weights=None,
          batch_size=16,
          imgsz=416,
-         conf_thres=0.001,
-         iou_thres=0.4,  # for nms
+         conf_thres=0.01,
+         iou_thres=0.6,  # for nms
          save_json=False,
          single_cls=False,
          augment=False,
          model=None,
-         dataloader=None):
+         dataloader=None,
+         multi_label=True):
     # Initialize/load model and set device
     if model is None:
+        is_training = False
         device = torch_utils.select_device(opt.device, batch_size=batch_size)
         verbose = opt.task == 'test'
 
@@ -35,7 +37,7 @@ def test(cfg,
         # Load weights
         attempt_download(weights)
         if weights.endswith('.pt'):  # pytorch format
-            model.load_state_dict(torch.load(weights, map_location=device)['model'])
+            model.load_state_dict(torch.load(weights, map_location=device, weights_only=False)['model'])
         else:  # darknet format
             load_darknet_weights(model, weights)
 
@@ -46,6 +48,7 @@ def test(cfg,
         if device.type != 'cpu' and torch.cuda.device_count() > 1:
             model = nn.DataParallel(model)
     else:  # called by train.py
+        is_training = True
         device = next(model.parameters()).device  # get model device
         verbose = False
 
@@ -60,7 +63,7 @@ def test(cfg,
 
     # Dataloader
     if dataloader is None:
-        dataset = LoadImagesAndLabels(path, imgsz, batch_size, rect=True, single_cls=opt.single_cls)
+        dataset = LoadImagesAndLabels(path, imgsz, batch_size, rect=True, single_cls=opt.single_cls, pad=0.5)
         batch_size = min(batch_size, len(dataset))
         dataloader = DataLoader(dataset,
                                 batch_size=batch_size,
@@ -72,7 +75,7 @@ def test(cfg,
     model.eval()
     _ = model(torch.zeros((1, 3, imgsz, imgsz), device=device)) if device.type != 'cpu' else None  # run once
     coco91class = coco80_to_coco91_class()
-    s = ('%20s' + '%10s' * 6) % ('Class', 'Images', 'Targets', 'P', 'R', 'mAP@0.4', 'F1')
+    s = ('%20s' + '%10s' * 6) % ('Class', 'Images', 'Targets', 'P', 'R', 'mAP@0.5', 'F1')
     p, r, f1, mp, mr, map, mf1, t0, t1 = 0., 0., 0., 0., 0., 0., 0., 0., 0.
     loss = torch.zeros(3, device=device)
     jdict, stats, ap, ap_class = [], [], [], []
@@ -90,12 +93,12 @@ def test(cfg,
             t0 += torch_utils.time_synchronized() - t
 
             # Compute loss
-            if hasattr(model, 'hyp'):  # if model has loss hyperparameters
+            if is_training:  # if model has loss hyperparameters
                 loss += compute_loss(train_out, targets, model)[1][:3]  # GIoU, obj, cls
 
             # Run NMS
             t = torch_utils.time_synchronized()
-            output = non_max_suppression(inf_out, conf_thres=conf_thres, iou_thres=iou_thres)  # nms
+            output = non_max_suppression(inf_out, conf_thres=conf_thres, iou_thres=iou_thres, multi_label=multi_label)
             t1 += torch_utils.time_synchronized() - t
 
         # Statistics per image
@@ -142,8 +145,8 @@ def test(cfg,
 
                 # Per target class
                 for cls in torch.unique(tcls_tensor):
-                    ti = (cls == tcls_tensor).nonzero().view(-1)  # prediction indices
-                    pi = (cls == pred[:, 5]).nonzero().view(-1)  # target indices
+                    ti = (cls == tcls_tensor).nonzero().view(-1)  # target indices
+                    pi = (cls == pred[:, 5]).nonzero().view(-1)  # prediction indices
 
                     # Search for detections
                     if pi.shape[0]:
@@ -173,9 +176,12 @@ def test(cfg,
     stats = [np.concatenate(x, 0) for x in zip(*stats)]  # to numpy
     if len(stats):
         p, r, ap, f1, ap_class = ap_per_class(*stats)
+        p, r, ap, f1 = p.reshape(-1, niou), r.reshape(-1, niou), ap.reshape(-1, niou), f1.reshape(-1, niou)
         if niou > 1:
-            p, r, ap, f1 = p[:, 0], r[:, 0], ap.mean(1), ap[:, 0]  # [P, R, AP@0.5:0.95, AP@0.5]
-        mp, mr, map, mf1 = p.mean(), r.mean(), ap.mean(), f1.mean()
+            mp, mr, map, mf1 = p[:, 0].mean(), r[:, 0].mean(), ap.mean(), f1[:, 0].mean()
+        else:
+            mp, mr, map, mf1 = p.mean(), r.mean(), ap.mean(), f1.mean()
+        p, r, ap, f1 = p[:, 0], r[:, 0], ap[:, 0], f1[:, 0]  # reduce to 1D for indexing at stats[228]
         nt = np.bincount(stats[3].astype(np.int64), minlength=nc)  # number of targets per class
     else:
         nt = torch.zeros(1)
@@ -234,7 +240,7 @@ if __name__ == '__main__':
     parser.add_argument('--batch-size', type=int, default=16, help='size of each image batch')
     parser.add_argument('--img-size', type=int, default=512, help='inference size (pixels)')
     parser.add_argument('--conf-thres', type=float, default=0.001, help='object confidence threshold')
-    parser.add_argument('--iou-thres', type=float, default=0.4, help='IOU threshold for NMS')
+    parser.add_argument('--iou-thres', type=float, default=0.6, help='IOU threshold for NMS')
     parser.add_argument('--save-json', action='store_true', help='save a cocoapi-compatible JSON results file')
     parser.add_argument('--task', default='test', help="'test', 'study', 'benchmark'")
     parser.add_argument('--device', default='', help='device id (i.e. 0 or 0,1) or cpu')
@@ -242,8 +248,8 @@ if __name__ == '__main__':
     parser.add_argument('--augment', action='store_true', help='augmented inference')
     opt = parser.parse_args()
     opt.save_json = opt.save_json or any([x in opt.data for x in ['coco.data', 'coco2014.data', 'coco2017.data']])
-    opt.cfg = list(glob.iglob('./**/' + opt.cfg, recursive=True))[0]  # find file
-    opt.data = list(glob.iglob('./**/' + opt.data, recursive=True))[0]  # find file
+    opt.cfg = check_file(opt.cfg)  # check file
+    opt.data = check_file(opt.data)  # check file
     print(opt)
 
     # task = 'test', 'study', 'benchmark'
@@ -262,7 +268,7 @@ if __name__ == '__main__':
     elif opt.task == 'benchmark':  # mAPs at 256-640 at conf 0.5 and 0.7
         y = []
         for i in list(range(256, 640, 128)):  # img-size
-            for j in [0.4, 0.7]:  # iou-thres
+            for j in [0.6, 0.7]:  # iou-thres
                 t = time.time()
                 r = test(opt.cfg, opt.data, opt.weights, opt.batch_size, i, opt.conf_thres, j, opt.save_json)[0]
                 y.append(r + (time.time() - t,))

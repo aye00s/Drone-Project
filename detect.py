@@ -4,6 +4,10 @@ from models import *  # set ONNX_EXPORT in models.py
 from utils.datasets import *
 from utils.utils import *
 
+import sys
+import models
+sys.modules['models.yolo'] = models
+
 
 def detect(save_img=False):
     imgsz = (320, 192) if ONNX_EXPORT else opt.img_size  # (320, 192) or (416, 256) or (608, 352) for (height, width)
@@ -22,7 +26,7 @@ def detect(save_img=False):
     # Load weights
     attempt_download(weights)
     if weights.endswith('.pt'):  # pytorch format
-        model.load_state_dict(torch.load(weights, map_location=device)['model'])
+        model.load_state_dict(torch.load(weights, map_location=device, weights_only=False)['model'])
     else:  # darknet format
         load_darknet_weights(model, weights)
 
@@ -30,7 +34,7 @@ def detect(save_img=False):
     classify = False
     if classify:
         modelc = torch_utils.load_classifier(name='resnet101', n=2)  # initialize
-        modelc.load_state_dict(torch.load('weights/resnet101.pt', map_location=device)['model'])  # load weights
+        modelc.load_state_dict(torch.load('weights/resnet101.pt', map_location=device, weights_only=False)['model'])  # load weights
         modelc.to(device).eval()
 
     # Eval mode
@@ -104,7 +108,7 @@ def detect(save_img=False):
         # Process detections
         for i, det in enumerate(pred):  # detections for image i
             if webcam:  # batch_size >= 1
-                p, s, im0 = path[i], '%g: ' % i, im0s[i]
+                p, s, im0 = path[i], '%g: ' % i, im0s[i].copy()
             else:
                 p, s, im0 = path, '', im0s
 
@@ -121,7 +125,7 @@ def detect(save_img=False):
                     s += '%g %ss, ' % (n, names[int(c)])  # add to string
 
                 # Write results
-                for *xyxy, conf, cls in det:
+                for *xyxy, conf, cls in reversed(det):
                     if save_txt:  # Write to file
                         xywh = (xyxy2xywh(torch.tensor(xyxy).view(1, 4)) / gn).view(-1).tolist()  # normalized xywh
                         with open(save_path[:save_path.rfind('.')] + '.txt', 'a') as file:
@@ -167,7 +171,7 @@ def detect(save_img=False):
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--cfg', type=str, default='cfg/yolov3-spp.cfg', help='*.cfg path')
-    parser.add_argument('--names', type=str, default='data/auair.names', help='*.names path')
+    parser.add_argument('--names', type=str, default='data/coco.names', help='*.names path')
     parser.add_argument('--weights', type=str, default='weights/yolov3-spp-ultralytics.pt', help='weights path')
     parser.add_argument('--source', type=str, default='data/samples', help='source')  # input file/folder, 0 for webcam
     parser.add_argument('--output', type=str, default='output', help='output folder')  # output folder
@@ -183,8 +187,8 @@ if __name__ == '__main__':
     parser.add_argument('--agnostic-nms', action='store_true', help='class-agnostic NMS')
     parser.add_argument('--augment', action='store_true', help='augmented inference')
     opt = parser.parse_args()
-    opt.cfg = list(glob.iglob('./**/' + opt.cfg, recursive=True))[0]  # find file
-    opt.names = list(glob.iglob('./**/' + opt.names, recursive=True))[0]  # find file
+    opt.cfg = check_file(opt.cfg)  # check file
+    opt.names = check_file(opt.names)  # check file
     print(opt)
 
     with torch.no_grad():
